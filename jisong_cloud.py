@@ -10,7 +10,12 @@ import io
 MEMO_FILE = "memos.json"
 ACCESS_LOG_FILE = "access_log.json"
 UPLOAD_DIR = "files"
-now = datetime.datetime.now()
+
+# [수정 1] 한국 시간(KST) 타임존 정의 (UTC+9)
+KST = datetime.timezone(datetime.timedelta(hours=9))
+
+# [수정 2] 현재 시간을 KST 기준으로 설정
+now = datetime.datetime.now(KST)
 
 # --- 초기화 및 데이터 관리 ---
 def init_app():
@@ -55,6 +60,8 @@ def create_zip_of_files():
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for file_name in files:
             file_path = os.path.join(UPLOAD_DIR, file_name)
+            # 압축 내부 파일 날짜도 KST로 맞추려면 별도 처리가 필요하지만, 
+            # 여기서는 파일 자체만 담습니다.
             zf.write(file_path, arcname=file_name)
     
     zip_buffer.seek(0)
@@ -73,6 +80,7 @@ def handle_access_log():
         else:
             st.session_state.last_access_display = "최초 접속"
 
+        # [수정 3] 로그 저장 시에도 KST 기준 시간 사용
         with open(ACCESS_LOG_FILE, "w") as f:
             json.dump({"last_access": now.strftime("%Y-%m-%d %H:%M:%S")}, f)
 
@@ -107,6 +115,7 @@ def main():
         st.rerun()
     
     st.sidebar.markdown("---")
+    # KST 기준 시간 표시
     st.sidebar.caption(f"🕒 현재 시간: {now.strftime('%H:%M')}")
     st.sidebar.caption(f"🔒 마지막 접속: {st.session_state.last_access_display}")
     st.sidebar.markdown("---")
@@ -138,22 +147,22 @@ def main():
         if os.path.exists(UPLOAD_DIR):
             files = os.listdir(UPLOAD_DIR)
             
-            # [수정됨] 파일을 수정 시간(mtime) 기준 내림차순 정렬 (최신순)
-            # os.path.join으로 전체 경로를 만든 뒤 getmtime으로 시간 추출 -> 역순 정렬
+            # 정렬 로직 (최신순)
             files.sort(key=lambda f: os.path.getmtime(os.path.join(UPLOAD_DIR, f)), reverse=True)
             
             if files:
                 for file_name in files:
                     file_path = os.path.join(UPLOAD_DIR, file_name)
                     
-                    # 파일 날짜 확인용 (옵션)
-                    file_time = datetime.datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M')
+                    # [수정 4] 파일의 수정 시간(timestamp)을 가져와 KST로 변환
+                    timestamp = os.path.getmtime(file_path)
+                    # fromtimestamp에 두 번째 인자로 tz(타임존)을 주면 해당 시간대로 변환됩니다.
+                    file_time = datetime.datetime.fromtimestamp(timestamp, tz=KST).strftime('%Y-%m-%d %H:%M')
                     
                     col_d1, col_d2 = st.columns([4, 1])
                     
                     with col_d1:
                         with open(file_path, "rb") as f:
-                            # 버튼 라벨에 시간 정보도 살짝 추가해주면 더 직관적입니다.
                             st.download_button(
                                 label=f"{file_name} ({file_time})", 
                                 data=f,
