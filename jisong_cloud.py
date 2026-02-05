@@ -5,10 +5,12 @@ import json
 import time
 import zipfile
 import io
+import random
 
 # --- 설정 ---
 MEMO_FILE = "memos.json"
 ACCESS_LOG_FILE = "access_log.json"
+MENU_LIST_FILE = "menu_list.json"
 UPLOAD_DIR = "files"
 
 # [수정 1] 한국 시간(KST) 타임존 정의 (UTC+9)
@@ -19,9 +21,15 @@ now = datetime.datetime.now(KST)
 
 # --- 초기화 및 데이터 관리 ---
 def init_app():
-    """앱 실행 시 필요한 디렉토리 생성"""
+    """앱 실행 시 필요한 디렉토리 및 기본 파일 생성"""
     if not os.path.exists(UPLOAD_DIR):
         os.makedirs(UPLOAD_DIR)
+    
+    # menu_list.json 파일이 없으면 기본 메뉴로 생성
+    if not os.path.exists(MENU_LIST_FILE):
+        default_menu = ["김치찌개", "제육볶음", "돈가스", "초밥", "짜장면", "삼겹살", "치킨", "햄버거", "파스타", "샌드위치"]
+        with open(MENU_LIST_FILE, "w", encoding="utf-8") as f:
+            json.dump(default_menu, f, ensure_ascii=False, indent=4)
 
 def load_memos():
     if not os.path.exists(MEMO_FILE):
@@ -40,7 +48,12 @@ def save_memos(memos):
 def save_uploaded_file(uploaded_file):
     """업로드된 파일을 서버(files 폴더)에 저장"""
     try:
-        file_path = os.path.join(UPLOAD_DIR, uploaded_file.name)
+        # 파일명과 확장자 분리 후 타임스탬프 추가
+        name, ext = os.path.splitext(uploaded_file.name)
+        timestamp = datetime.datetime.now(KST).strftime("%Y%m%d_%H%M%S")
+        new_filename = f"{name}_{timestamp}{ext}"
+        
+        file_path = os.path.join(UPLOAD_DIR, new_filename)
         with open(file_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
         return True
@@ -99,12 +112,10 @@ def main():
     if "menu" not in st.session_state:
         st.session_state.menu = "files"
 
-    if st.session_state.menu == "files":
-        btn_files_type = "primary"
-        btn_memos_type = "secondary"
-    else:
-        btn_files_type = "secondary"
-        btn_memos_type = "primary"
+    # 버튼 상태 강조 로직 업데이트
+    btn_files_type = "primary" if st.session_state.menu == "files" else "secondary"
+    btn_memos_type = "primary" if st.session_state.menu == "memos" else "secondary"
+    btn_tools_type = "primary" if st.session_state.menu == "tools" else "secondary"
 
     if st.sidebar.button("📂 웹하드", type=btn_files_type, use_container_width=True):
         st.session_state.menu = "files"
@@ -114,11 +125,16 @@ def main():
         st.session_state.menu = "memos"
         st.rerun()
     
+    if st.sidebar.button("🛠️ 도구모음", type=btn_tools_type, use_container_width=True):
+        st.session_state.menu = "tools"
+        st.rerun()
+
     st.sidebar.markdown("---")
     # KST 기준 시간 표시
     st.sidebar.caption(f"🕒 현재 시간: {now.strftime('%H:%M')}")
     st.sidebar.caption(f"🔒 마지막 접속: {st.session_state.last_access_display}")
     st.sidebar.markdown("---")
+    st.sidebar.caption("Ver 1.0") 
     st.sidebar.caption("@Jisong Bang 2026") 
 
     # --- [메뉴 1] 파일 전송 기능 ---
@@ -268,6 +284,62 @@ def main():
                         st.toast("🗑️ 삭제되었습니다.")
                         time.sleep(0.5)
                         st.rerun()
+
+    # --- [메뉴 3] 도구모음 기능 ---
+    elif st.session_state.menu == "tools":
+        st.title("🛠️ 도구모음")
+
+        # 도구 선택 드롭다운
+        selected_tool = st.selectbox("사용할 도구를 선택하세요", ["📝 글자수 카운터", "🍴 오늘 뭐 먹지?"])
+        st.markdown("---")
+
+        if selected_tool == "📝 글자수 카운터":
+            st.subheader("📝 글자수 카운터")
+            st.info("텍스트를 입력하면 단어수, 글자수, 예상 A4 페이지 수를 계산합니다.")
+            
+            input_text = st.text_area("분석할 텍스트를 입력하세요", height=300, placeholder="여기에 내용을 붙여넣으세요...")
+            
+            if st.button("분석하기", type="primary", use_container_width=True):
+                if input_text:
+                    # 계산 로직
+                    char_count_with_spaces = len(input_text)
+                    char_count_without_spaces = len(input_text.replace(" ", "").replace("\n", "").replace("\r", ""))
+                    word_count = len(input_text.split())
+                    # A4 기준: 공백 포함 1,500자당 1페이지로 계산 (일반적인 기준)
+                    a4_pages = char_count_with_spaces / 1500
+                    
+                    st.markdown("---")
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric("단어 수", f"{word_count}개")
+                    with col2:
+                        st.metric("글자 수 (공백 포함)", f"{char_count_with_spaces}자")
+                    with col3:
+                        st.metric("글자 수 (공백 제외)", f"{char_count_without_spaces}자")
+                    with col4:
+                        st.metric("예상 A4 분량", f"{a4_pages:.2f}쪽")
+                    st.caption("※ A4 분량은 공백 포함 1,500자를 1쪽으로 계산한 결과입니다.")
+                else:
+                    st.warning("텍스트를 입력해주세요.")
+
+        elif selected_tool == "🍴 오늘 뭐 먹지?":
+            st.subheader("🍴 오늘 뭐 먹지?")
+            st.info("결정하기 힘들 때, 랜덤으로 메뉴를 추천해 드립니다!")
+            
+            if st.button("🎲 메뉴 추천받기", use_container_width=True):
+                if os.path.exists(MENU_LIST_FILE):
+                    try:
+                        with open(MENU_LIST_FILE, "r", encoding="utf-8") as f:
+                            menu_list = json.load(f)
+                        
+                        selected_menu = random.choice(menu_list)
+                        st.balloons()
+                        st.success(f"오늘의 추천 메뉴는 바로... **{selected_menu}** 입니다! 맛있게 드세요! 😋")
+                    except Exception as e:
+                        st.error(f"메뉴를 불러오는 중 오류가 발생했습니다: {e}")
+                else:
+                    st.error("menu_list.json 파일이 없습니다.")
 
 if __name__ == "__main__":
     main()
